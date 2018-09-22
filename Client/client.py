@@ -11,14 +11,13 @@ from threading import Thread
 
 def receive_message():
     """ Wait for a reply from server and return"""
-    while True:
-        try:
-            msg = loads(client_socket.recv(BUFFER_SIZE))
-            if msg is not None:
-                print("Server sent: ".format(HOST, msg))
-                return msg
-        except OSError:
-            break
+    try:
+        msg = loads(client_socket.recv(BUFFER_SIZE))
+        if msg is not None:
+            print("Server sent: {}".format(msg))
+            return msg
+    except OSError:
+        pass
 
 
 def send_message(msg):
@@ -124,7 +123,8 @@ class LoginPage(tk.Frame):
             salt = msg[1]
             password_hash = sha256((password + salt).encode()).hexdigest()
             send_message(("password", password_hash))
-            self.master.switch_frame(DatabaseViewer, [], password)
+            accounts = receive_message()[1]
+            self.master.switch_frame(DatabaseViewer, accounts, password)
         else:
             self.message_label.config(text="Username taken")
 
@@ -144,11 +144,13 @@ class DatabaseViewer(tk.Frame):
 
         self.master = master
         self.password = password
+        self.popup = False
 
         master.geometry("760x460")
         master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        #
+        # if not empty
+        # convert each tuple inside the list into an mutuable list
         if accounts:
             self.accounts = [list(x) for x in accounts]
         else:
@@ -316,8 +318,10 @@ class DatabaseViewer(tk.Frame):
         notes_entry.grid(row=2, column=1, columnspan=3, sticky="we", padx=(2, 20), pady=(2, 2))
 
         def add():
-            self.accounts.append([service_entry.get(),
-                                  login_entry.get(), notes_entry.get(1.0, "end").replace("\n", " ")])
+            service = service_entry.get()
+            login = login_entry.get()
+            notes = notes_entry.get(1.0, "end").replace("\n", " ")
+            self.accounts.append([service, login, notes])
             service_entry.delete(0, "end")
             login_entry.delete(0, "end")
             notes_entry.delete(1.0, "end")
@@ -382,8 +386,10 @@ class DatabaseViewer(tk.Frame):
         """ Logs out the user, returning to the login page"""
         send_message(("update", self.accounts))
         send_message(("logout",))
+        if self.popup:
+            self.add_popup.destroy()
         self.master.switch_frame(LoginPage)
-
+        
     def delete_account(self):
         """ Creates a pop that deletes the users account"""
         if tk.messagebox.askokcancel("Confirm action", "Are you sure you want to delete your account?"):
@@ -404,7 +410,7 @@ class DatabaseViewer(tk.Frame):
 
 
 PORT = 33000
-HOST = "192.168.1.5"
+HOST = "172.16.5.231"
 BUFFER_SIZE = 2048
 
 if __name__ == "__main__":

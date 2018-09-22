@@ -34,18 +34,22 @@ import os
 # ("logout", )
 # ("quit", )
 
-
 commands = {"login":  str,
             "register": str,
             "password": str,
             "update": list,
-            "delete": type(None),
+            "delete_user": type(None),
             "logout": type(None),
             "quit": type(None)}
 
-base64characters = list("abcdefghijklmnopqrstuvwxyz"
-                        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                        "01234567890+/")
+
+def is_hex(string):
+    try:
+        int(string, 16)
+        return True
+    except ValueError:
+        return False
+
 
 def accept_incoming_connections():
     """ accepts connection from incoming clients """
@@ -69,16 +73,20 @@ def send_message(client, message):
 
 
 def receive_message(client):
-    while True:
-        try:
-            msg = loads(client.recv(BUFFER_SIZE))
-            if msg is not None:
+    try:
+        msg = loads(client.recv(BUFFER_SIZE))
+        if msg is not None:
+            assert isinstance(msg, object)
+            try:
                 event = "{}  {}:{} sent: {}".format(current_time(), addresses[client][0], addresses[client][1], msg)
-                print(event)
-                eventlog.append(event)
-                return msg
-        except OSError:  # Possibly client has left the chat.
-            break
+            except KeyError:
+                print(msg)
+                print(addresses)
+            print(event)
+            eventlog.append(event)
+            return msg
+    except OSError:  # Possibly client has left the chat.
+        pass
 
 
 def current_time():
@@ -89,8 +97,9 @@ def current_time():
 def server_log():
     if not os.path.exists("serverlogs"):
         os.makedirs("serverlogs")
+    eventlog = []
     while True:
-        sleep(30)  # wait 30 seconds
+        sleep(10)  # wait 30 seconds
         if eventlog:
             path = "serverlogs/{}.txt".format(datetime.now().strftime("%Y-%m-%d"))
             with open(path, mode="a", encoding="utf8") as file:
@@ -118,86 +127,124 @@ def validate_command(command, command_type):
             if command_type == "login":
                 return True
             elif command_type == "password":
-                return len(argument) == 43 and all([x in base64characters for x in argument])
+                # has to be a default sha256 hash
+                return len(argument) == 64 and all(is_hex(char) for char in argument)
             elif command_type == "register":
                 return valid_credentials(argument)
+            else:
+                return True
         else:
             return False
     return False
 
 
-def handle_client(client):
-    """ handles a single client connection until it disconnects """
+class ClientConnection:
 
-    # LOGIN
-    # 1. Client sends login request with name
-    # 2. if valid name, server sends associated salt
-    # 3. client returns the salted hash of its password
-    # 4. if its valid then login granted sent
-    # 5. associate database sent
+    def __init__(self, client):
+        self.client = client
+        self.username = ""
+        self.awaiting_login = True
 
-    # REGISTER
-    # 1. Client sends register request with name
-    # 2. If valid salt is created and sent to client
-    # 3. Client sends salted hash
-    # 4. username, salted hash and salt stored in login database
-    # 5. empty database sent
-    
-    # spaghetti code to run through login or register procedure
-    username = ""
-    while username == "":
-        command = receive_message(client)
-        if validate_command(command, "login"):
-            if logindatabase.username_exists(command[1]):
-                send_message(client, ("salt", logindatabase.get_salt(command[1])))
-                password = receive_message(client)[1]
-                if logindatabase.verify_hash(command[1], password):
-                    username = command[1]
-                    send_message(client, ("login_granted", ))
-                else:
-                    send_message(client, ("login_denied",))
-                del password
-            else:
-                send_message(client, ("login_denied",))
+        self.setup()
 
-        elif validate_command(command, "register"):
-            if not logindatabase.username_exists(command[1]):
-                salt = logindatabase.generate_salt()
-                send_message(client, ("salt", salt))
-                password = receive_message(client)[1]
-                username = command[1]
+    def setup(self):
+        self.username = ""
+        self.awaiting_login = True
 
-                # create account
-                logindatabase.add(username, password, salt)
-                del password, salt
-            else:
-                send_message(client, ("username_taken",))
-        elif command == ("quit", ):
-            client.close()
-            break
+        print("setup ran")
         
-    # If login successful
-    if username:
-        access = True
-        user = databaseinterface.DatabaseInterface(username)
-        send_message(client, ("accounts", user.get_accounts()))
-        while access:
-            command = receive_message(client)
-            if command != ("quit", ):
-                if command == ("delete_user", ):
-                    user.delete_user()
-                    logindatabase.delete_user(username)
-                    del addresses[client]
-                elif command == ("logout", ):
-                    access = False
-                    handle_client(client)
-                    del addresses[client]
-                elif command[0] == "update":
-                    user.update_table(command[1])
+        while self.awaiting_login:
+            command = receive_message(self.client)
+            if validate_command(command, "login"):
+                self.login(command[1])
+            elif validate_command(command, "register"):
+                self.register(command[1])
+            elif validate_command(command, "quit"):
+                self.quit()
             else:
-                client.close()
+                print("Invalid command sent")
+                self.client.close()
+                self.awaiting_login = False
+
+        print("while escaped")
+        if self.username:
+            self.run()
+
+    def login(self, username):
+        if logindatabase.username_exists(username):
+            send_message(self.client, ("salt", logindatabase.get_salt(username)))
+            password = receive_message(self.client)[1]
+            if logindatabase.verify_hash(username, password):
+                self.username = username
+                self.awaiting_login = False
+                send_message(self.client, ("login_granted",))
+            else:
+                send_message(self.client, ("login_denied",))
+            del password
+        else:
+            send_message(self.client, ("login_denied",))
+
+    def register(self, username):
+        if not logindatabase.username_exists(username):
+            salt = logindatabase.generate_salt()
+            send_message(self.client, ("salt", salt))
+            password = receive_message(self.client)[1]
+
+            self.username = username
+            self.awaiting_login = False
+            # create account
+            logindatabase.add(self.username, password, salt)
+            del password, salt
+        else:
+            send_message(self.client, ("username_taken",))
+
+    def quit(self):
+        self.client.close()
+        self.awaiting_login = False
+
+    def run(self):
+        print("ran")
+        access = True
+        runsetup = False
+        user = databaseinterface.DatabaseInterface(self.username)
+        send_message(self.client, ("accounts", user.get_accounts(), current_time()))
+
+        while access:
+            command = receive_message(self.client)
+            if validate_command(command, "delete_user"):
+                user.delete_user()
+                logindatabase.delete_user(self.username)
+                del addresses[self.client]
+
+            elif validate_command(command, "logout"):
+                print("LOGGED OUT")
                 access = False
-                del addresses[client]
+                runsetup = True
+
+            elif validate_command(command, "update"):
+                user.update_table(command[1])
+
+            elif validate_command(command, "quit"):
+                self.client.close()
+                access = False
+                del addresses[self.client]
+
+            elif command is not None:
+                print("Invalid command sent")
+                print("command: ", command)
+                self.client.close()
+                access = False
+                del addresses[self.client]
+
+        if runsetup:
+            print("setup")
+            self.setup()
+
+
+def handle_client(connection):
+    """ handles a single client connection until it disconnects """
+    # while True:
+    ClientConnection(connection)
 
 
 HOST = socket.gethostbyname(socket.gethostname())
