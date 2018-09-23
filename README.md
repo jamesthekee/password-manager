@@ -11,7 +11,7 @@ HOW TO USE
 
 1. You run the server on a computer
 2. Write down the ip address it is hosted at
-3. Insert the IP address in the client at line ...
+3. Insert the IP address in the client at line 421
 4. Launch client and use however bloody ever
 
 HOW IT WORKS
@@ -25,5 +25,4 @@ Only the service, login and the notes information are sent to the server thus on
 
 TECHNICAL NOTES
 - Might not work for not LAN might need to do some port-forwarding
-- Uses the PORT
-- Uses 
+- Uses the PORT 33000
