@@ -27,7 +27,6 @@ def verify_hash(username, received_hash):
 
 
 def add(username, password_hash, salt):
-    print((username, password_hash, salt))
     cursor.execute("INSERT INTO registered_accounts VALUES (?, ?, ?)", (username, password_hash, salt))
     conn.commit()
 

@@ -7,22 +7,51 @@ from hashlib import sha256
 from codecs import encode, decode
 from time import sleep
 from threading import Thread
+import diffiehellman
 
 
-def receive_message():
-    """ Wait for a reply from server and return"""
-    try:
-        msg = loads(client_socket.recv(BUFFER_SIZE))
-        if msg is not None:
-            print("Server sent: {}".format(msg))
-            return msg
-    except OSError:
-        pass
+class ServerConnection:
 
+    def __init__(self):
+        self.socket = None
+        self.connect()
 
-def send_message(msg):
-    """ Send a message to server"""
-    client_socket.send(dumps(msg))
+        if self.socket is not None:
+            d = diffiehellman.DiffieHellman()
+            self.socket.send(bytes(str(d.get_public_key()), "utf8"))
+            server_key = int(self.socket.recv(BUFFER_SIZE).decode())
+            self.key = d.get_shared_key(server_key)
+
+            app = Application(self)
+            app.mainloop()
+
+    def connect(self):
+        connecting = True
+        while connecting:
+            try:
+                self.socket = socket(AF_INET, SOCK_STREAM)
+                self.socket.connect((HOST, PORT))
+                connecting = False
+            except (TimeoutError, ConnectionRefusedError):
+                connecting = tk.messagebox.askretrycancel(
+                    "Disconnected", "Unable to connect to server, would you like to retry?")
+
+    def receive_message(self):
+        """ Wait for a reply from server and return"""
+        try:
+            msg = loads(self.socket.recv(BUFFER_SIZE))
+            if msg is not None:
+                print("Server sent: {}".format(msg))
+                return msg
+        except OSError:
+            print("Disconnected ?")
+
+    def send_message(self, msg):
+        """ Send a message to server"""
+        self.socket.send(dumps(msg))
+
+    def close(self):
+        self.socket.close()
 
 
 def valid_credentials(credential):
@@ -34,11 +63,12 @@ def valid_credentials(credential):
 class Application(tk.Tk):
     """ Tkinter window that can change between frame"""
 
-    def __init__(self):
+    def __init__(self, server_connection):
         tk.Tk.__init__(self)
         self.resizable(False, False)
         self.title("KeeSecurity")
         self.iconbitmap("keesecurity.ico")
+        self.server = server_connection
 
         self.frame_ = None
         self.switch_frame(LoginPage)
@@ -103,15 +133,15 @@ class LoginPage(tk.Frame):
             self.message_label.config(text="Invalid username or password")
 
     def login_procedure(self, username, password):
-        send_message(("login", username))
-        msg = receive_message()
+        self.master.server.send_message(("login", username))
+        msg = self.master.server.receive_message()
         if msg[0] == "salt":
             salt = msg[1]
             password_hash = sha256((password + salt).encode()).hexdigest()
-            send_message(("password", password_hash))
-            msg = receive_message()
+            self.master.server.send_message(("password", password_hash))
+            msg = self.master.server.receive_message()
             if msg == ("login_granted",):
-                accounts = receive_message()[1]
+                accounts = self.master.server.receive_message()[1]
                 self.master.switch_frame(DatabaseViewer, accounts, password)
             elif msg == ("login_denied",):
                 self.message_label.config(text="Invalid login details")
@@ -119,24 +149,24 @@ class LoginPage(tk.Frame):
             self.message_label.config(text="Invalid login details")
 
     def register_procedure(self, username, password):
-        send_message(("register", username))
-        msg = receive_message()
+        self.master.server.send_message(("register", username))
+        msg = self.master.server.receive_message()
         if msg != ("username_taken",):
             salt = msg[1]
             password_hash = sha256((password + salt).encode()).hexdigest()
-            send_message(("password", password_hash))
-            accounts = receive_message()[1]
+            self.master.server.send_message(("password", password_hash))
+            accounts = self.master.server.receive_message()[1]
             self.master.switch_frame(DatabaseViewer, accounts, password)
         else:
             self.message_label.config(text="Username taken")
 
     def on_closing(self):
         try:
-            send_message(("quit",))
+            self.master.server.send_message(("quit",))
         except OSError:  # Not connected
             pass
-        client_socket.close()
-        app.destroy()
+        self.master.server.close()
+        self.master.destroy()
 
 
 class DatabaseViewer(tk.Frame):
@@ -392,8 +422,8 @@ class DatabaseViewer(tk.Frame):
 
     def logout(self):
         """ Logs out the user, returning to the login page"""
-        send_message(("update", self.accounts))
-        send_message(("logout",))
+        self.master.server.send_message(("update", self.accounts))
+        self.master.server.send_message(("logout",))
         if self.popup:
             self.add_popup.destroy()
         self.master.switch_frame(LoginPage)
@@ -401,37 +431,26 @@ class DatabaseViewer(tk.Frame):
     def delete_account(self):
         """ Creates a pop that deletes the users account"""
         if tk.messagebox.askokcancel("Confirm action", "Are you sure you want to delete your account?"):
-            send_message(("delete_user",))
+            self.master.server.send_message(("delete_user",))
             self.master.switch_frame(LoginPage)
 
     def on_closing(self):
         """ Triggers when window is closed"""
         try:
-            send_message(("update", self.accounts))
-            send_message(("quit",))
+            self.master.server.send_message(("update", self.accounts))
+            self.master.server.send_message(("quit",))
         except OSError:  # Not connected
             pass
-        client_socket.close()
+        self.master.server.close()
         if self.popup:
             self.add_popup.destroy()
-        app.destroy()
-
+        self.master.destroy()
+        
 
 PORT = 33000
 HOST = "192.168.1.5"
 BUFFER_SIZE = 2048
 
 if __name__ == "__main__":
-    connecting = True
-    while connecting:
-        try:
-            client_socket = socket(AF_INET, SOCK_STREAM)
-            client_socket.connect((HOST, PORT))
-            break
-        except (TimeoutError, ConnectionRefusedError):
-            connecting = tk.messagebox.askretrycancel(
-                "Disconnected", "Unable to connect to server, would you like to retry?")
-    if connecting:
-        app = Application()
-        app.mainloop()
+    thing = ServerConnection()
 

@@ -3,6 +3,7 @@ from threading import Thread
 from pickle import loads, dumps
 import logindatabase
 import databaseinterface
+import diffiehellman
 from time import sleep
 from datetime import datetime
 import os
@@ -44,6 +45,7 @@ commands = {"login":  str,
 
 
 def is_hex(string):
+    """Returns true if string is valid hexidecimal"""
     try:
         int(string, 16)
         return True
@@ -53,47 +55,35 @@ def is_hex(string):
 
 def accept_incoming_connections():
     """ accepts connection from incoming clients """
-
     log_event("Hosting server at {}".format(HOST))
     print("Waiting for connection...")
     
     while True:
-        connection, address = SERVER.accept()
-        string = "{}:{} has connected.".format(*address)
-        log_event(string)
+        connection, address = server.accept()
+        log_event("{}:{} has connected.".format(*address))
         
-        Thread(target=ClientConnection, args=(connection,)).start()
-        addresses[connection] = address
-
-
-def send_message(client, message):
-    client.send(dumps(message))
-
-
-def receive_message(client):
-    try:
-        msg = loads(client.recv(BUFFER_SIZE))
-        if msg is not None:
-            log_event("{}:{} sent: {}".format(*addresses[client], msg))
-            return msg
-    except OSError:  # Possibly client has left the chat.
-        pass
+        Thread(target=ClientConnection, args=(connection, address)).start()
 
 
 def current_time():
+    """ returns current time in HH:MM:SS """
     time = str(datetime.now().time())
     return time[:time.find(".")]
 
 
 def log_event(string):
+    """ prints string and adds string to event log with current time """
     string = "{} {}".format(current_time(), string)
     print(string)
     event_log.append(string)
 
 
 def server_log():
+    """ log events and record in .txt in /serverlogs """
+
     if not os.path.exists("serverlogs"):
         os.makedirs("serverlogs")
+
     event_log = []
     while True:
         sleep(30)  # wait 30 seconds
@@ -107,12 +97,12 @@ def server_log():
 
 def valid_credentials(username):
     """ returns true if the username or password is
-    between 5 and 32 characters and is only alphanumeric"""
+    between 5 and 32 characters and is only alphanumeric """
     return 5 <= len(username) <= 32 and all([x.isalnum() for x in username])
 
 
 def validate_command(command, command_type):
-    """Returns true if is a valid command, and of the type expected"""
+    """ returns true if is a valid command, and of the type expected """
     if type(command) is tuple:
         instruction = command[0]
         try:
@@ -137,21 +127,42 @@ def validate_command(command, command_type):
 
 
 class ClientConnection:
-    """Handles an instance of a client"""
+    """ handles an communication between server and a client """
 
-    def __init__(self, client):
+    def __init__(self, client, address):
         self.client = client
+        self.address = address
+
+        # Create a shared key through diffie-hellman key exchange
+        d = diffiehellman.DiffieHellman()
+        client_key = int(self.client.recv(BUFFER_SIZE).decode())
+        self.client.send(bytes(str(d.get_public_key()), "utf8"))
+        self.key = d.get_shared_key(client_key)
+        
         self.username = ""
         self.awaiting_login = True
+        self.access = False
 
         self.setup()
+
+    def send_message(self, message):
+        self.client.send(dumps(message))
+
+    def receive_message(self):
+        try:
+            msg = loads(self.client.recv(BUFFER_SIZE))
+            if msg is not None:
+                log_event("{}:{} sent: {}".format(*self.address, msg))
+                return msg
+        except OSError:
+            pass
 
     def setup(self):
         self.username = ""
         self.awaiting_login = True
         
         while self.awaiting_login:
-            command = receive_message(self.client)
+            command = self.receive_message()
             if validate_command(command, "login"):
                 self.login(command[1])
             elif validate_command(command, "register"):
@@ -168,69 +179,64 @@ class ClientConnection:
 
     def login(self, username):
         if logindatabase.username_exists(username):
-            send_message(self.client, ("salt", logindatabase.get_salt(username)))
-            password = receive_message(self.client)[1]
+            self.send_message(("salt", logindatabase.get_salt(username)))
+            password = self.receive_message()[1]
             if logindatabase.verify_hash(username, password):
                 self.username = username
                 self.awaiting_login = False
-                send_message(self.client, ("login_granted",))
+                self.send_message(("login_granted",))
             else:
-                send_message(self.client, ("login_denied",))
-            del password
+                self.send_message(("login_denied",))
         else:
-            send_message(self.client, ("login_denied",))
+            self.send_message(("login_denied",))
 
     def register(self, username):
         if not logindatabase.username_exists(username):
             salt = logindatabase.generate_salt()
-            send_message(self.client, ("salt", salt))
-            password = receive_message(self.client)[1]
+            self.send_message(("salt", salt))
+            password = self.receive_message()[1]
 
             self.username = username
             self.awaiting_login = False
             # create account
             logindatabase.add(self.username, password, salt)
-            del password, salt
         else:
-            send_message(self.client, ("username_taken",))
+            self.send_message(("username_taken",))
 
     def quit(self):
         self.client.close()
         self.awaiting_login = False
-        log_event("{}:{} has disconnected".format(*addresses[self.client]))
+        self.access = False
+        log_event("{}:{} has disconnected".format(*self.address))
 
     def run(self):
-        access = True
-        runsetup = False
+        self.access = True
+        run_setup = False
         user = databaseinterface.DatabaseInterface(self.username)
-        send_message(self.client, ("accounts", user.get_accounts()))
+        self.send_message(("accounts", user.get_accounts()))
 
-        while access:
-            command = receive_message(self.client)
+        while self.access:
+            command = self.receive_message()
             if validate_command(command, "delete_user"):
                 user.delete_user()
                 logindatabase.delete_user(self.username)
-                del addresses[self.client]
+                self.quit()
 
             elif validate_command(command, "logout"):
-                access = False
-                runsetup = True
+                self.access = False
+                run_setup = True
 
             elif validate_command(command, "update"):
                 user.update_table(command[1])
 
             elif validate_command(command, "quit"):
-                self.client.close()
-                access = False
-                del addresses[self.client]
+                self.quit()
 
             elif command is not None:
                 log_event("Invalid command sent: {}".format(command))
-                self.client.close()
-                access = False
-                del addresses[self.client]
+                self.quit()
 
-        if runsetup:
+        if run_setup:
             self.setup()
 
 
@@ -239,14 +245,13 @@ PORT = 33000
 BUFFER_SIZE = 2048
 TOTAL_CLIENTS = 8
 
-SERVER = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-SERVER.bind((HOST, PORT))
-
-addresses = {}
 event_log = []
 
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.bind((HOST, PORT))
+
 if __name__ == "__main__":
-    SERVER.listen(TOTAL_CLIENTS)
+    server.listen(TOTAL_CLIENTS)
     Thread(target=server_log).start()
     accept_incoming_connections()
-    SERVER.close()
+    server.close()
