@@ -8,47 +8,90 @@ from codecs import encode, decode
 from time import sleep
 from threading import Thread
 import diffiehellman
+import sys
 
 
 class ServerConnection:
+    """ manages communication with server """
 
     def __init__(self):
         self.socket = None
+        self.connected = False
         self.connect()
-
-        if self.socket is not None:
+        
+        if self.connected:
             d = diffiehellman.DiffieHellman()
             self.socket.send(bytes(str(d.get_public_key()), "utf8"))
             server_key = int(self.socket.recv(BUFFER_SIZE).decode())
-            self.key = d.get_shared_key(server_key)
+            self.seed = str(d.get_shared_key(server_key))
+            # print("Established key: ", self.seed)
 
+            self.key = ""
+            
             app = Application(self)
             app.mainloop()
+        else:
+            sys.exit(0)
+    
+    def encrypt(self, message):
+        self.key = int(sha256(self.seed.encode()).hexdigest(), 16)
+        self.seed = str(self.key)
+        self.key = bin(self.key)[2:]
+
+        # Concatenate all bytes in message to create binary string
+        message_binary = ""
+        for byte in message:
+            message_binary = "{:0>8}".format(bin(byte)[2:]) + message_binary
+
+        while len(self.key) < len(message_binary):
+            seed_hash = int(sha256(self.seed.encode()).hexdigest(), 16)
+            self.seed = str(seed_hash)
+            self.key += bin(seed_hash)[2:]
+
+        self.key = self.key[:len(message_binary)]
+
+        # print("Current key: ", int(self.key, 2))
+
+        vernam = bin(int(self.key, 2) ^ int(message_binary, 2))[2:]
+        if len(vernam) % 8 != 0:
+            vernam = (8-(len(vernam) % 8)) * '0' + vernam
+
+        # Get bytes out of message
+        bytelist = []
+        for i in range(0, len(vernam), 8):
+            byte = int(vernam[i: i+8], 2)
+            bytelist = [byte] + bytelist
+
+        return bytes(bytelist)
 
     def connect(self):
         connecting = True
+
         while connecting:
             try:
                 self.socket = socket(AF_INET, SOCK_STREAM)
                 self.socket.connect((HOST, PORT))
                 connecting = False
+                self.connected = True
             except (TimeoutError, ConnectionRefusedError):
                 connecting = tk.messagebox.askretrycancel(
                     "Disconnected", "Unable to connect to server, would you like to retry?")
+                print("connecting: ", connecting)
+
+    def send_message(self, message):
+        """ Send a message to server"""
+        message = self.encrypt(dumps(message))
+        self.socket.send(message)
 
     def receive_message(self):
         """ Wait for a reply from server and return"""
         try:
-            msg = loads(self.socket.recv(BUFFER_SIZE))
-            if msg is not None:
-                print("Server sent: {}".format(msg))
-                return msg
+            message = loads(self.encrypt(self.socket.recv(BUFFER_SIZE)))
+            if message is not None:
+                print("Server sent: {}".format(message))
+                return message
         except OSError:
             print("Disconnected ?")
-
-    def send_message(self, msg):
-        """ Send a message to server"""
-        self.socket.send(dumps(msg))
 
     def close(self):
         self.socket.close()
@@ -116,6 +159,9 @@ class LoginPage(tk.Frame):
         self.message_label = tk.Label(self, text="", foreground="red")
         self.message_label.grid(row=4, column=0, columnspan=3, sticky='e')
 
+        # Enter button pressed
+        self.master.bind("<Return>", self.enter_pressed)
+
     def login(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
@@ -160,6 +206,9 @@ class LoginPage(tk.Frame):
         else:
             self.message_label.config(text="Username taken")
 
+    def enter_pressed(self, event):
+        print("Enter pressed on login page")
+
     def on_closing(self):
         try:
             self.master.server.send_message(("quit",))
@@ -189,6 +238,9 @@ class DatabaseViewer(tk.Frame):
         else:
             self.accounts = accounts
 
+        # Enter button pressed
+        self.master.bind("<Return>", self.enter_pressed)
+        
         # GUI SETUP
 
         # create menu
@@ -433,6 +485,9 @@ class DatabaseViewer(tk.Frame):
         if tk.messagebox.askokcancel("Confirm action", "Are you sure you want to delete your account?"):
             self.master.server.send_message(("delete_user",))
             self.master.switch_frame(LoginPage)
+
+    def enter_pressed(self, event):
+        print("Enter pressed on database page")
 
     def on_closing(self):
         """ Triggers when window is closed"""

@@ -7,6 +7,7 @@ import diffiehellman
 from time import sleep
 from datetime import datetime
 import os
+from hashlib import sha256
 
 # The protocol for communication is sending a tuple 
 # They are formatted as so: ("instruction", "argument")
@@ -127,7 +128,7 @@ def validate_command(command, command_type):
 
 
 class ClientConnection:
-    """ handles an communication between server and a client """
+    """ manages communication to a client """
 
     def __init__(self, client, address):
         self.client = client
@@ -137,7 +138,10 @@ class ClientConnection:
         d = diffiehellman.DiffieHellman()
         client_key = int(self.client.recv(BUFFER_SIZE).decode())
         self.client.send(bytes(str(d.get_public_key()), "utf8"))
-        self.key = d.get_shared_key(client_key)
+        self.seed = str(d.get_shared_key(client_key))
+        # print("Established key: ", self.seed)
+
+        self.key = ""
         
         self.username = ""
         self.awaiting_login = True
@@ -145,15 +149,48 @@ class ClientConnection:
 
         self.setup()
 
+    def encrypt(self, message):
+        self.key = int(sha256(self.seed.encode()).hexdigest(), 16)
+        self.seed = str(self.key)
+        self.key = bin(self.key)[2:]
+
+        # Concatenate all bytes in message to create binary string
+        message_binary = ""
+        for byte in message:
+            message_binary = "{:0>8}".format(bin(byte)[2:]) + message_binary
+
+        while len(self.key) < len(message_binary):
+            seed_hash = int(sha256(self.seed.encode()).hexdigest(), 16)
+            self.seed = str(seed_hash)
+            self.key += bin(seed_hash)[2:]
+
+        self.key = self.key[:len(message_binary)]
+
+        vernam = bin(int(self.key, 2) ^ int(message_binary, 2))[2:]
+        if len(vernam) % 8 != 0:
+            vernam = (8-(len(vernam) % 8)) * '0' + vernam
+
+        # Get bytes out of message
+        bytelist = []
+        for i in range(0, len(vernam), 8):
+            byte = int(vernam[i: i+8], 2)
+            bytelist = [byte] + bytelist
+
+        return bytes(bytelist)
+
     def send_message(self, message):
-        self.client.send(dumps(message))
+        message = self.encrypt(dumps(message))
+        self.client.send(message)
 
     def receive_message(self):
         try:
-            msg = loads(self.client.recv(BUFFER_SIZE))
-            if msg is not None:
-                log_event("{}:{} sent: {}".format(*self.address, msg))
-                return msg
+            bytes = self.client.recv(BUFFER_SIZE)
+            unencrypt = self.encrypt(bytes)
+            message = loads(unencrypt)
+
+            if message is not None:
+                log_event("{}:{} sent: {}".format(*self.address, message))
+                return message
         except OSError:
             pass
 
