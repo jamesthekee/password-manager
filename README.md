@@ -1,5 +1,5 @@
 # password-manager
-server and gui based client program for a password manager in python
+server and gui based client program for a password manager in python.
 
 This was produced for my coursework for AQA A-Level project.
 
@@ -9,10 +9,10 @@ of hacking... bla bla bla you get the point
 
 HOW TO USE
 
-1. You run the server on a computer
+1. You run the server/server.py on a computer
 2. Write down the ip address it is hosted at
 3. Insert the IP address in the client at line 421
-4. Launch client and use however bloody ever
+4. Run client/client.py and use however bloody ever
 
 HOW IT WORKS
 All communication is currently encrypted and is sent in plaintext.
