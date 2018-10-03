@@ -11,7 +11,7 @@ HOW TO USE
 
 1. You run the server/server.py on a computer
 2. Write down the ip address it is hosted at
-3. Insert the IP address in the client at line 421
+3. Insert the host address and port in the clientconfig.ini
 4. Run client/client.py and use however bloody ever
 
 HOW IT WORKS
