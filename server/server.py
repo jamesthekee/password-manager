@@ -1,18 +1,14 @@
 import socket
 from threading import Thread
-from pickle import loads, dumps
-import logindatabase
-import databaseinterface
+from pickle import loads, dumps, UnpicklingError
+import logindb
+import datadb
 import diffiehellman
 from time import sleep
 from datetime import datetime
 import os
 from hashlib import sha256
-
-# The protocol for communication is sending a tuple 
-# They are formatted as so: ("instruction", "argument")
-# They are sent using the loads and dumps method of pickle
-
+import serverconfig
 
 # All commands
 
@@ -56,14 +52,18 @@ def is_hex(string):
 
 def accept_incoming_connections():
     """ accepts connection from incoming clients """
-    log_event("Hosting server at {}".format(HOST))
+
+    log_event("Hosting server at {} on port {}".format(HOST, PORT))
     print("Waiting for connection...")
     
     while True:
         connection, address = server.accept()
         log_event("{}:{} has connected.".format(*address))
-        
-        Thread(target=ClientConnection, args=(connection, address)).start()
+        if not whitelist_enabled or address[0] in whitelist_ips:
+            Thread(target=ClientConnection, args=(connection, address)).start()
+        else:
+            log_event("{}:{} was forcefully disconnected as it was not on the whitelist".format(*address))
+            connection.close()
 
 
 def current_time():
@@ -81,25 +81,25 @@ def log_event(string):
 
 def server_log():
     """ log events and record in .txt in /serverlogs """
+    if not os.path.exists(serverlog_directory):
+        os.makedirs(serverlog_directory)
 
-    if not os.path.exists("serverlogs"):
-        os.makedirs("serverlogs")
+    global event_log
 
-    event_log = []
     while True:
         sleep(30)  # wait 30 seconds
         if event_log:
-            path = "serverlogs/{}.txt".format(datetime.now().strftime("%Y-%m-%d"))
+            path = "{}/{}.txt".format(serverlog_directory, datetime.now().strftime("%Y-%m-%d"))
             with open(path, mode="a", encoding="utf8") as file:
                 for line in event_log:
                     file.write(line+"\n")
             event_log = []
 
 
-def valid_credentials(username):
+def valid_credentials(credential):
     """ returns true if the username or password is
     between 5 and 32 characters and is only alphanumeric """
-    return 5 <= len(username) <= 32 and all([x.isalnum() for x in username])
+    return 5 <= len(credential) <= 32 and all([x.isalnum() for x in credential])
 
 
 def validate_command(command, command_type):
@@ -179,22 +179,26 @@ class ClientConnection:
         return bytes(bytelist)
 
     def send_message(self, message):
+        """ send a messsage to client"""
         message = self.encrypt(dumps(message))
         self.client.send(message)
 
     def receive_message(self):
+        """ receive one message from the client """
         try:
-            bytes = self.client.recv(BUFFER_SIZE)
-            unencrypt = self.encrypt(bytes)
-            message = loads(unencrypt)
+            message = self.encrypt(self.client.recv(BUFFER_SIZE))
+            message = loads(message)
 
             if message is not None:
                 log_event("{}:{} sent: {}".format(*self.address, message))
                 return message
+        except UnpicklingError:
+            print("Unpickling error: invalid encryption/ decryption? :{}")
         except OSError:
             pass
 
     def setup(self):
+        """ manages the users command until logged in or disconnected """
         self.username = ""
         self.awaiting_login = True
         
@@ -215,11 +219,13 @@ class ClientConnection:
             self.run()
 
     def login(self, username):
-        if logindatabase.username_exists(username):
-            self.send_message(("salt", logindatabase.get_salt(username)))
+        """ handles the commands sent for the login procedure """
+        if logindb.username_exists(username):
+            self.send_message(("salt", logindb.get_salt(username)))
             password = self.receive_message()[1]
-            if logindatabase.verify_hash(username, password):
+            if logindb.verify_hash(username, password):
                 self.username = username
+                log_event("{}:{} has logged in to the account '{}'".format(*self.address, self.username))
                 self.awaiting_login = False
                 self.send_message(("login_granted",))
             else:
@@ -228,35 +234,39 @@ class ClientConnection:
             self.send_message(("login_denied",))
 
     def register(self, username):
-        if not logindatabase.username_exists(username):
-            salt = logindatabase.generate_salt()
+        """ handles the commands sent for the register procedure """
+        if not logindb.username_exists(username):
+            salt = logindb.generate_salt()
             self.send_message(("salt", salt))
             password = self.receive_message()[1]
 
             self.username = username
             self.awaiting_login = False
             # create account
-            logindatabase.add(self.username, password, salt)
+            logindb.add(self.username, password, salt)
+            log_event("{}:{} has registered the account '{}'".format(*self.address, self.username))
         else:
             self.send_message(("username_taken",))
 
     def quit(self):
+        """ handles the client quiting """
         self.client.close()
         self.awaiting_login = False
         self.access = False
         log_event("{}:{} has disconnected".format(*self.address))
 
     def run(self):
+        """ handles the client quiting """
         self.access = True
         run_setup = False
-        user = databaseinterface.DatabaseInterface(self.username)
+        user = datadb.DatabaseInterface(self.username)
         self.send_message(("accounts", user.get_accounts()))
 
         while self.access:
             command = self.receive_message()
             if validate_command(command, "delete_user"):
                 user.delete_user()
-                logindatabase.delete_user(self.username)
+                logindb.delete_user(self.username)
                 self.quit()
 
             elif validate_command(command, "logout"):
@@ -277,18 +287,38 @@ class ClientConnection:
             self.setup()
 
 
-HOST = socket.gethostbyname(socket.gethostname())
-PORT = 33000
-BUFFER_SIZE = 2048
-TOTAL_CLIENTS = 8
-
 event_log = []
+
+HOST = socket.gethostbyname(socket.gethostname())
+PORT = serverconfig.connection["port"]
+CLIENT_MAX = serverconfig.connection["client max"]
+whitelist_enabled = serverconfig.connection["whitelist"]
+BUFFER_SIZE = serverconfig.connection["buffer size"]
+
+serverlog_enabled = serverconfig.files["serverlog"]
+serverlog_directory = serverconfig.files["serverlog directory"]
+userdata_name = serverconfig.files["userdata db name"]
+registered_accounts_name = serverconfig.files["registered accounts db name"]
+
+datadb.initialize(userdata_name)
+logindb.initialize(registered_accounts_name)
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind((HOST, PORT))
 
+if whitelist_enabled:
+    with open("whitelist.txt", mode="r", encoding="utf8") as file:
+        temp = file.read().replace(" ", "").split("\n")
+        whitelist_ips = []
+        # Remove empty entries from blank lines
+        for i in temp:
+            if i:
+                whitelist_ips.append(i)
+    print(whitelist_ips)
+
 if __name__ == "__main__":
-    server.listen(TOTAL_CLIENTS)
-    Thread(target=server_log).start()
+    server.listen(CLIENT_MAX)
+    if serverlog_enabled:
+        Thread(target=server_log).start()
     accept_incoming_connections()
     server.close()

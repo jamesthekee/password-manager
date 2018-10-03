@@ -2,13 +2,13 @@ import tkinter as tk
 import tkinter.ttk as ttk
 import tkinter.messagebox
 from socket import AF_INET, socket, SOCK_STREAM
-from pickle import loads, dumps
+from pickle import loads, dumps, UnpicklingError
 from hashlib import sha256
 from codecs import encode, decode
 from time import sleep
 from threading import Thread
 import diffiehellman
-import sys
+import clientconfig
 
 
 class ServerConnection:
@@ -18,8 +18,10 @@ class ServerConnection:
         self.socket = None
         self.connected = False
         self.connect()
-        
+
         if self.connected:
+            # establish shared diffie-hellman key exchange
+
             d = diffiehellman.DiffieHellman()
             self.socket.send(bytes(str(d.get_public_key()), "utf8"))
             server_key = int(self.socket.recv(BUFFER_SIZE).decode())
@@ -27,13 +29,14 @@ class ServerConnection:
             # print("Established key: ", self.seed)
 
             self.key = ""
-            
+
             app = Application(self)
             app.mainloop()
         else:
-            sys.exit(0)
-    
+            quit()
+
     def encrypt(self, message):
+        """ perform vernam cipher on message using key generated from seed"""
         self.key = int(sha256(self.seed.encode()).hexdigest(), 16)
         self.seed = str(self.key)
         self.key = bin(self.key)[2:]
@@ -43,20 +46,21 @@ class ServerConnection:
         for byte in message:
             message_binary = "{:0>8}".format(bin(byte)[2:]) + message_binary
 
+        # Ensure key length is sufficient
         while len(self.key) < len(message_binary):
             seed_hash = int(sha256(self.seed.encode()).hexdigest(), 16)
             self.seed = str(seed_hash)
             self.key += bin(seed_hash)[2:]
 
+        # Trim key to exact length of message
         self.key = self.key[:len(message_binary)]
 
-        # print("Current key: ", int(self.key, 2))
-
+        # perform xor on key and message
         vernam = bin(int(self.key, 2) ^ int(message_binary, 2))[2:]
         if len(vernam) % 8 != 0:
             vernam = (8-(len(vernam) % 8)) * '0' + vernam
 
-        # Get bytes out of message
+        # convert vernam cipher into bytes object
         bytelist = []
         for i in range(0, len(vernam), 8):
             byte = int(vernam[i: i+8], 2)
@@ -65,6 +69,7 @@ class ServerConnection:
         return bytes(bytelist)
 
     def connect(self):
+        """ attempt to connect to host"""
         connecting = True
 
         while connecting:
@@ -76,7 +81,6 @@ class ServerConnection:
             except (TimeoutError, ConnectionRefusedError):
                 connecting = tk.messagebox.askretrycancel(
                     "Disconnected", "Unable to connect to server, would you like to retry?")
-                print("connecting: ", connecting)
 
     def send_message(self, message):
         """ Send a message to server"""
@@ -90,10 +94,13 @@ class ServerConnection:
             if message is not None:
                 print("Server sent: {}".format(message))
                 return message
+        except UnpicklingError:
+            print("Unpickling error: invalid encryption/ decryption? ")
         except OSError:
             print("Disconnected ?")
 
     def close(self):
+        """ close connection """
         self.socket.close()
 
 
@@ -159,9 +166,6 @@ class LoginPage(tk.Frame):
         self.message_label = tk.Label(self, text="", foreground="red")
         self.message_label.grid(row=4, column=0, columnspan=3, sticky='e')
 
-        # Enter button pressed
-        self.master.bind("<Return>", self.enter_pressed)
-
     def login(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
@@ -195,6 +199,7 @@ class LoginPage(tk.Frame):
             self.message_label.config(text="Invalid login details")
 
     def register_procedure(self, username, password):
+        """ send commands for register procedure """
         self.master.server.send_message(("register", username))
         msg = self.master.server.receive_message()
         if msg != ("username_taken",):
@@ -206,10 +211,8 @@ class LoginPage(tk.Frame):
         else:
             self.message_label.config(text="Username taken")
 
-    def enter_pressed(self, event):
-        print("Enter pressed on login page")
-
     def on_closing(self):
+        """ close application """
         try:
             self.master.server.send_message(("quit",))
         except OSError:  # Not connected
@@ -238,20 +241,21 @@ class DatabaseViewer(tk.Frame):
         else:
             self.accounts = accounts
 
-        # Enter button pressed
-        self.master.bind("<Return>", self.enter_pressed)
-        
         # GUI SETUP
 
         # create menu
         menu = tk.Menu(master)
         master.config(menu=menu)
 
+        product_information = """This password manager is an A-Level project written by James Kee 
+        More information is available at https://github.com/jamesthekee/password-manager"""
+
         submenu = tk.Menu(menu)
         menu.add_cascade(label="More", menu=submenu)
         submenu.add_command(label="Logout", command=self.logout)
-        submenu.add_command(label="Information", command=lambda: tkinter.messagebox.showinfo(
-            "Product Information", "This password manager is a A-Level project written by James Kee"))
+        submenu.add_command(label="Information",
+                            command=lambda: tkinter.messagebox.showinfo("Product Information",
+                                                                        product_information))
         submenu.add_separator()
         submenu.add_command(label="Delete Account", command=self.delete_account)
 
@@ -286,7 +290,8 @@ class DatabaseViewer(tk.Frame):
         self.scrollbar.grid(row=0, column=3, rowspan=16, columnspan=1, sticky="nsw", padx=(0, 0), pady=(0, 0))
         self.table.configure(yscrollcommand=self.scrollbar.set)
 
-        # Tool buttons
+        # TOOL BUTTONS
+
         self.edit_label = tk.Label(self, text="Edit textbox")
         self.edit_textbox = tk.Text(self, height=4, width=24, state="disabled")
         self.edit_button = tk.Button(self, text="apply edit", command=self.edit_entry, state="disabled")
@@ -456,13 +461,13 @@ class DatabaseViewer(tk.Frame):
         thread.start()
 
     def copy_login(self):
-        """ Copies login from selected row """
+        """ copies login from selected row """
         self.clipboard_clear()
         self.clipboard_append(self.get_selected_values("login"))
         self.update()
 
     def update_table(self):
-        """ Clears all stored entries in the table, refilling it with new values"""
+        """ clears all stored entries in the table, refilling it with new values"""
         current_entries = self.table.get_children()
         self.start_index += len(current_entries)
         self.table.delete(*current_entries)
@@ -473,7 +478,7 @@ class DatabaseViewer(tk.Frame):
                               values=(row[0], row[1], "*****", row[2]))
 
     def logout(self):
-        """ Logs out the user, returning to the login page"""
+        """ logs the user out and returns to the login page """
         self.master.server.send_message(("update", self.accounts))
         self.master.server.send_message(("logout",))
         if self.popup:
@@ -486,11 +491,8 @@ class DatabaseViewer(tk.Frame):
             self.master.server.send_message(("delete_user",))
             self.master.switch_frame(LoginPage)
 
-    def enter_pressed(self, event):
-        print("Enter pressed on database page")
-
     def on_closing(self):
-        """ Triggers when window is closed"""
+        """ sends updated table and closes the main window and popup """
         try:
             self.master.server.send_message(("update", self.accounts))
             self.master.server.send_message(("quit",))
@@ -502,10 +504,9 @@ class DatabaseViewer(tk.Frame):
         self.master.destroy()
         
 
-PORT = 33000
-HOST = "192.168.1.5"
-BUFFER_SIZE = 2048
+PORT = clientconfig.connection["port"]
+HOST = clientconfig.connection["host"]
+BUFFER_SIZE = clientconfig.connection["buffer size"]
 
 if __name__ == "__main__":
-    thing = ServerConnection()
-
+    ServerConnection()

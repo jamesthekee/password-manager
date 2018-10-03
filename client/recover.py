@@ -7,8 +7,9 @@ write down service name, login name and your masterkey down perfectly without a 
 concatenate them toghet in the order of service, login, masterkey
 pass through sha256 hash function
 convert from hex to base 64 
-remove the = symbol from the end from paddinG
+remove the = symbol from the end from padding
 """
+
 
 def generate_password(service, login, masterkey):
     """generates password from the clients service, login, masterkey"""
