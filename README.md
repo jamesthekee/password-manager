@@ -4,7 +4,7 @@ server and gui based client program for a password manager in python.
 This was produced for my coursework for AQA A-Level project.
 
 DISCLAIMER
-This is not proffesional don't actually use this to store passwords as I cannot assure that this is secure against any modern methods
+This is not professional don't actually use this to store passwords as I cannot assure that this is secure against any modern methods
 of hacking... bla bla bla you get the point
 
 HOW TO USE
@@ -16,7 +16,7 @@ HOW TO USE
 
 HOW IT WORKS
 All communication is currently encrypted and is sent in plaintext.
-When you login in to the service, the password is hashed with a salt so your password can't be recovered. Assuming u reuse, which you shouldn't
+When you login in to the service, the password is hashed with a salt so your password can't be recovered. Assuming you reuse, which you shouldn't
 
 Passwords are generated from a SHA256 hash of the service, login and your masterkey(login password).
 Only the service, login and the notes information are sent to the server thus only the client should be able to generate the passwords.
