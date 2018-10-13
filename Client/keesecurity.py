@@ -1,26 +1,33 @@
 import tkinter as tk
 import tkinter.ttk as ttk
 import tkinter.messagebox
-from socket import AF_INET, socket, SOCK_STREAM
+import socket
 from pickle import loads, dumps, UnpicklingError
 from hashlib import sha256
-from codecs import encode, decode
-from time import sleep
+import time
 from threading import Thread
 import lib.diffiehellman as diffiehellman
 import lib.clientconfig as clientconfig
+import lib.generate as generate
+import lib.encrypt as encryption
+
+
+PORT = clientconfig.connection["port"]
+HOST = clientconfig.connection["host"]
+BUFFER_SIZE = clientconfig.connection["buffer size"]
 
 
 class ServerConnection:
-    """ manages communication with server """
+    """ Manages communication with server. """
 
     def __init__(self):
+        """ Controls the establishment of the communication. """
         self.socket = None
         self.connected = False
         self.connect()
 
         if self.connected:
-            # establish shared diffie-hellman key exchange
+            # Perform Diffie-Hellman key exchange
 
             d = diffiehellman.DiffieHellman()
             self.socket.send(bytes(str(d.get_public_key()), "utf8"))
@@ -34,69 +41,53 @@ class ServerConnection:
             quit()
 
     def encrypt(self, message):
-        """ perform vernam cipher on message using key generated from seed"""
-        self.key = int(sha256(self.seed.encode()).hexdigest(), 16)
-        self.seed = str(self.key)
-        self.key = bin(self.key)[2:]
-
-        # Concatenate all bytes in message to create binary string
-        message_binary = ""
-        for byte in message:
-            message_binary = "{:0>8}".format(bin(byte)[2:]) + message_binary
-
-        # Ensure key length is sufficient
-        while len(self.key) < len(message_binary):
-            seed_hash = int(sha256(self.seed.encode()).hexdigest(), 16)
-            self.seed = str(seed_hash)
-            self.key += bin(seed_hash)[2:]
-
-        # Trim key to exact length of message
-        self.key = self.key[:len(message_binary)]
-
-        # perform xor on key and message
-        vernam = bin(int(self.key, 2) ^ int(message_binary, 2))[2:]
-        if len(vernam) % 8 != 0:
-            vernam = (8-(len(vernam) % 8)) * '0' + vernam
-
-        # convert vernam cipher into bytes object
-        bytelist = []
-        for i in range(0, len(vernam), 8):
-            byte = int(vernam[i: i+8], 2)
-            bytelist = [byte] + bytelist
-
-        return bytes(bytelist)
+        """ Perform vernam cipher on message using key generated from seed. """
+        
+        encrypted, new_seed = encryption.encrypt(message, self.seed)
+        self.seed = new_seed
+        return encrypted
 
     def connect(self):
-        """ attempt to connect to host"""
+        """ Attempt to connect to host. """
+        
+        print("Attempting to connect to {}:{}".format(HOST, PORT))
         connecting = True
 
+        # Keep attempting to connect to the HOST
         while connecting:
             try:
-                self.socket = socket(AF_INET, SOCK_STREAM)
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.socket.settimeout(1) 
                 self.socket.connect((HOST, PORT))
                 connecting = False
                 self.connected = True
-            except (TimeoutError, ConnectionRefusedError):
+            except (TimeoutError, ConnectionRefusedError, socket.timeout):
                 connecting = tk.messagebox.askretrycancel(
-                    "Disconnected", "Unable to connect to server, would you like to retry?")
+                    "Disconnected", "Unable to connect to server, would you like to try again?")
 
         # Send OK for communication
         if self.connected:
+            self.socket.settimeout(5)
             self.socket.send(bytes("OK", "utf8"))
             response = self.socket.recv(BUFFER_SIZE).decode()
             # Confirm OK from server
             if response != "OK":
-                message = "The server has rejected your connection, your ip may not be whitelisted on the host"
+                message = "The server has rejected your connection, your ip may not be whitelisted by the host"
+                print(message)
                 tkinter.messagebox.showerror("Failed to connect", message)
                 self.connected = False
+        else:
+            print("Connected to: {}:{}".format(HOST, PORT))
 
     def send_message(self, message):
-        """ Send a message to server"""
+        """ Send a message to server. """
+        
         message = self.encrypt(dumps(message))
         self.socket.send(message)
 
     def receive_message(self):
-        """ Wait for a reply from server and return"""
+        """ Wait for a reply from server and return it. """
+        
         try:
             message = loads(self.encrypt(self.socket.recv(BUFFER_SIZE)))
             if message is not None:
@@ -108,18 +99,19 @@ class ServerConnection:
             print("Disconnected ?")
 
     def close(self):
-        """ close connection """
+        """ Close connection with server """
         self.socket.close()
 
 
 def valid_credentials(credential):
-    """ returns true if the username or password is
-    between 5 and 32 characters and is only alphanumeric"""
-    return 5 <= len(credential) <= 32 and all([x.isalnum() for x in credential])
+    """ Returns true if the username or password is
+    between 5 and 32 characters and is only alphanumeric. """
+    
+    return 5 <= len(credential) <= 32 and credential.isalnum()
 
 
 class Application(tk.Tk):
-    """ Tkinter window that can change between frame"""
+    """ Creates Tkinter window that can change its current frame. """
 
     def __init__(self, server_connection):
         tk.Tk.__init__(self)
@@ -132,7 +124,8 @@ class Application(tk.Tk):
         self.switch_frame(LoginPage)
 
     def switch_frame(self, frame_class, *args):
-        """Destroys current frame and replaces it with a new one"""
+        """ Destroys current frame and replaces it with a new one. """
+        
         if self.frame_ is not None:
             self.frame_.destroy()
         self.frame_ = frame_class(self, *args)
@@ -140,7 +133,7 @@ class Application(tk.Tk):
 
 
 class LoginPage(tk.Frame):
-    """tk Frame that displays the login window"""
+    """ tk Frame that displays the login window. """
 
     def __init__(self, master):
         tk.Frame.__init__(self, master)
@@ -175,6 +168,7 @@ class LoginPage(tk.Frame):
         self.message_label.grid(row=4, column=0, columnspan=3, sticky='e')
 
     def login(self):
+        """ Attempt to log the client in. """
         username = self.username_entry.get()
         password = self.password_entry.get()
         self.username_entry.delete(0, "end")
@@ -183,14 +177,18 @@ class LoginPage(tk.Frame):
         self.login_procedure(username, password)
 
     def register(self):
+        """ Attempt to register an account for the client. """
         username = self.username_entry.get()
         password = self.password_entry.get()
+        # Client-side authentication for valid format for credentials
         if valid_credentials(username) and valid_credentials(password):
             self.register_procedure(username, password)
         else:
             self.message_label.config(text="Invalid username or password")
 
     def login_procedure(self, username, password):
+        """ Send commands to server for the login procedure. """
+        
         self.master.server.send_message(("login", username))
         msg = self.master.server.receive_message()
         if msg[0] == "salt":
@@ -207,7 +205,8 @@ class LoginPage(tk.Frame):
             self.message_label.config(text="Invalid login details")
 
     def register_procedure(self, username, password):
-        """ send commands for register procedure """
+        """ Send commands to server for the register procedure. """
+        
         self.master.server.send_message(("register", username))
         msg = self.master.server.receive_message()
         if msg != ("username_taken",):
@@ -220,7 +219,8 @@ class LoginPage(tk.Frame):
             self.message_label.config(text="Username taken")
 
     def on_closing(self):
-        """ close application """
+        """ Close the application appropriately. """
+        
         try:
             self.master.server.send_message(("quit",))
         except OSError:  # Not connected
@@ -230,7 +230,7 @@ class LoginPage(tk.Frame):
 
 
 class DatabaseViewer(tk.Frame):
-    """tk Frame that displays the database viewer window"""
+    """ tk Frame that displays the database viewer window. """
 
     def __init__(self, master, accounts, password):
         tk.Frame.__init__(self, master)
@@ -242,7 +242,7 @@ class DatabaseViewer(tk.Frame):
         master.geometry("760x460")
         master.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # convert each tuple inside the list into a list
+        # convert each tuple inside the list into a list so its editable
         if accounts:
             self.accounts = [list(x) for x in accounts]
         else:
@@ -276,6 +276,7 @@ class DatabaseViewer(tk.Frame):
         self.table = ttk.Treeview(self, height=20,
                                   columns=("service", "login", "password", "notes"), selectmode="browse")
 
+        # Table columns
         self.table.heading('#0', text='', anchor=tk.CENTER)
         self.table.heading('#1', text='service', anchor=tk.CENTER)
         self.table.heading('#2', text='login', anchor=tk.CENTER)
@@ -288,11 +289,13 @@ class DatabaseViewer(tk.Frame):
         self.table.column('#3', stretch=True, minwidth=50, width=60)
         self.table.column('#4', stretch=True, minwidth=50, width=200)
 
+        # Table placement
         self.table.grid(row=0, column=0, rowspan=16, columnspan=3, sticky="we", padx=(0, 0), pady=(2, 0))
         self.update_table()
 
         self.table.bind('<Button-1>', self.table_click)
 
+        # Add scrollbar
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.table.yview)
         self.scrollbar.grid(row=0, column=3, rowspan=16, columnspan=1, sticky="nsw", padx=(0, 0), pady=(0, 0))
         self.table.configure(yscrollcommand=self.scrollbar.set)
@@ -319,6 +322,7 @@ class DatabaseViewer(tk.Frame):
 
     def table_click(self, event):
         """ Triggers when table clicked"""
+        
         region = self.table.identify_region(event.x, event.y)
         if region == "separator":
             return "break"
@@ -330,11 +334,11 @@ class DatabaseViewer(tk.Frame):
     def cell_selection(self, event):
         """ Function to retrieve row and column number selected"""
 
-        # Get cell coordinates
+        # get cell coordinates
         row = self.table.identify_row(event.y)
         col = self.table.identify_column(event.x)
 
-        # IF A CELL SELECTED
+        # if a cell is selected
         if row != "":
 
             self.row_selected = int(row[1:], 16) - 1
@@ -353,8 +357,7 @@ class DatabaseViewer(tk.Frame):
             else:
                 self.set_editable(False)
 
-        # CELL UNSELECTED
-
+        # if a cell is unselected
         else:
             self.table.selection_remove(self.table.focus())
             self.delete_button.config(state="disabled")
@@ -364,7 +367,8 @@ class DatabaseViewer(tk.Frame):
             self.set_editable(False)
 
     def set_editable(self, state):
-        """Function to enable/disable edit functions"""
+        """ Function to enable/disable edit functions. """
+        
         if state:
             self.edit_textbox.config(state="normal")
             self.edit_button.config(state="normal")
@@ -380,6 +384,8 @@ class DatabaseViewer(tk.Frame):
             self.edit_button.config(state="disabled")
 
     def get_selected_values(self, column="all"):
+        """ Returns specific values from a selected row, determined by the column argument. """
+        
         row = self.accounts[self.row_selected - self.start_index]
         # Return entire row
         if column == "all":
@@ -390,7 +396,7 @@ class DatabaseViewer(tk.Frame):
             return row[lookup[column]]
 
     def add_entry(self):
-        """ Adds a new entry to the accounts list"""
+        """ Adds a new entry to the accounts list. """
 
         # Disable add button
         self.add_button.config(state="disabled")
@@ -400,7 +406,7 @@ class DatabaseViewer(tk.Frame):
         self.add_popup.title("Add entry")
         self.add_popup.resizable(False, False)
         self.popup = True
-
+        
         def close_add_popup():
             self.add_button.config(state="normal")
             self.add_popup.destroy()
@@ -408,6 +414,7 @@ class DatabaseViewer(tk.Frame):
 
         self.add_popup.protocol("WM_DELETE_WINDOW", close_add_popup)
 
+        # Create widgets in the popup
         tk.Label(self.add_popup, text="Service").grid(row=0, column=0, sticky="e", padx=(2, 2))
         tk.Label(self.add_popup, text="Login").grid(row=1, column=0, sticky="e", padx=(2, 2))
         tk.Label(self.add_popup, text="Notes").grid(row=2, column=0, sticky="ne", padx=(2, 2))
@@ -433,36 +440,34 @@ class DatabaseViewer(tk.Frame):
         tk.Button(self.add_popup, text="Add", command=add).grid(row=3, column=2, sticky="ew")
 
     def delete_entry(self):
-        """ Deletes an entry from the accounts list"""
+        """ Deletes an entry from the accounts list. """
+        
         del self.accounts[self.row_selected - self.start_index]
         self.update_table()
         self.set_editable(False)
 
     def edit_entry(self):
-        """ Edits an entry from the accounts list"""
+        """ Edits an entry from the accounts list. """
+        
         accounts_index = {1: 0,
                           2: 1,
                           4: 2}[self.column_selected]
         self.accounts[self.row_selected - self.start_index][accounts_index] = \
-                                        self.edit_textbox.get(1.0, "end").replace("\n", " ")
+            self.edit_textbox.get(1.0, "end").replace("\n", " ")
         self.update_table()
 
-    def generate_password(self, service, login, masterkey):
-        password_hash = sha256((service + login + masterkey).encode()).hexdigest()
-        b64 = encode(decode(password_hash, 'hex'), 'base64').decode()
-        return b64[:-2]  # Remove last two character, always =\n
-
     def copy_password(self):
-        """ Copies password from selected row """
+        """ Copies password from selected row. """
+        
         self.clipboard_clear()
         self.clipboard_append(
-                self.generate_password(self.get_selected_values("service"),
-                                       self.get_selected_values("login"), self.password))
+                generate.generate_password(self.get_selected_values("service"),
+                                           self.get_selected_values("login"), self.password))
         self.master.update()
 
         def clear():
-            """ Clears clipboard """
-            sleep(5)
+            """ Clears the clipboard. """
+            time.sleep(5)
             self.clipboard_clear()
             self.clipboard_append("")
             self.update()
@@ -471,13 +476,14 @@ class DatabaseViewer(tk.Frame):
         thread.start()
 
     def copy_login(self):
-        """ copies login from selected row """
+        """ Copies login cell value from the selected row. """
         self.clipboard_clear()
         self.clipboard_append(self.get_selected_values("login"))
         self.update()
 
     def update_table(self):
-        """ clears all stored entries in the table, refilling it with new values"""
+        """ Clears all the stored entries in the table, refilling it with the current values. """
+        
         current_entries = self.table.get_children()
         self.start_index += len(current_entries)
         self.table.delete(*current_entries)
@@ -488,7 +494,8 @@ class DatabaseViewer(tk.Frame):
                               values=(row[0], row[1], "*****", row[2]))
 
     def logout(self):
-        """ logs the user out and returns to the login page """
+        """ Logs the user out and returns to the login page. """
+        
         self.master.server.send_message(("update", self.accounts))
         self.master.server.send_message(("logout",))
         if self.popup:
@@ -496,13 +503,15 @@ class DatabaseViewer(tk.Frame):
         self.master.switch_frame(LoginPage)
         
     def delete_account(self):
-        """ Creates a pop that deletes the users account"""
+        """ Creates a pop that deletes the users account. """
+        
         if tk.messagebox.askokcancel("Confirm action", "Are you sure you want to delete your account?"):
             self.master.server.send_message(("delete_user",))
             self.master.switch_frame(LoginPage)
 
     def on_closing(self):
-        """ sends updated table and closes the main window and popup """
+        """ Sends the updated table and closes all windows and popups. """
+        
         try:
             self.master.server.send_message(("update", self.accounts))
             self.master.server.send_message(("quit",))
@@ -512,11 +521,7 @@ class DatabaseViewer(tk.Frame):
         if self.popup:
             self.add_popup.destroy()
         self.master.destroy()
-        
 
-PORT = clientconfig.connection["port"]
-HOST = clientconfig.connection["host"]
-BUFFER_SIZE = clientconfig.connection["buffer size"]
 
 if __name__ == "__main__":
     ServerConnection()

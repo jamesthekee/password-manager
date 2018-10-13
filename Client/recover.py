@@ -1,4 +1,4 @@
-from Lib.generate import generate_password
+import lib.generate as generate
 
 """
 password generation process
@@ -15,4 +15,4 @@ if __name__ == "__main__":
     service = input("Please enter the service name: ")
     login = input("Please enter login: ")
     masterkey = input("Please enter your masterkey(login password): ")
-    print(generate_password(service, login, masterkey))
+    print(generate.generate_password(service, login, masterkey))
