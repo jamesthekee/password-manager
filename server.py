@@ -117,7 +117,8 @@ def log_event(string):
 
     string = "{} {}".format(current_time(), string)
     print(string)
-    event_log.append(string)
+    if serverlog_enabled:
+        event_log.append(string)
 
 
 def server_log():
