@@ -509,7 +509,7 @@ class DatabaseViewer(tk.Frame):
         if len(self.accounts) != 0:
             sorted_accounts = self.accounts
             self.index_mapping = [x for x in range(len(self.accounts))]
-            if sortcol != 0:
+            if self.sortcol != 0:
                 temp = [(a, b) for a, b in sorted(zip(self.accounts, self.index_mapping),
                                                   key=lambda accounts: accounts[0][self.sortcol-1])]
                 sorted_accounts, self.index_mapping = zip(*temp)
