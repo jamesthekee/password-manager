@@ -103,7 +103,7 @@ class ServerConnection:
         self.socket.close()
 
 
-def valid_credentials(credential):
+def validate_credentials(credential):
     """ Returns true if the username or password is
     between 5 and 32 characters and is only alphanumeric. """
     
@@ -183,7 +183,7 @@ class LoginPage(tk.Frame):
         username = self.username_entry.get()
         password = self.password_entry.get()
         # Client-side authentication for valid format for credentials
-        if valid_credentials(username) and valid_credentials(password):
+        if validate_credentials(username) and validate_credentials(password):
             self.register_procedure(username, password)
         else:
             self.message_label.config(text="Invalid username or password")
