@@ -140,7 +140,7 @@ def server_log():
             event_log = []
 
 
-def valid_credentials(credential):
+def validate_credentials(credential):
     """ Returns true if the username or password is
     between 5 and 32 characters and is only alphanumeric. """
 
@@ -165,7 +165,7 @@ def validate_command(command, command_type):
                 # has to be a default sha256 hash
                 return len(argument) == 64 and all(is_hex(char) for char in argument)
             elif command_type == "register":
-                return valid_credentials(argument)
+                return validate_credentials(argument)
             else:
                 return True
         else:
