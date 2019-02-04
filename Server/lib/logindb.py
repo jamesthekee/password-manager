@@ -6,12 +6,11 @@ from binascii import hexlify
 def initialize(directory):
     """ Initialize variables for use in the module. """
 
-    # Create directory
+    # Check if directory exists and create folders
     if "/" in directory:
         # Remove the file name
         index = len(directory) - 1 - directory[::-1].index("/")
         temp = directory[:index]
-        print(temp)
         if not os.path.exists(temp):
             os.makedirs(temp)
 
@@ -32,23 +31,23 @@ def close():
 def username_exists(username):
     """ Returns true if username is in database. """
 
-    cursor.execute("SELECT * FROM registered_accounts where username=?", (username,))
-    login_details = cursor.fetchone()
+    cursor.execute("SELECT username FROM registered_accounts where username=?", (username,))
+    login_details = cursor.fetchone()[0]
     return bool(login_details)
 
 
 def get_salt(username):
     """ Returns the username's salt. """
 
-    cursor.execute("SELECT * FROM registered_accounts where username=?", (username,))
-    return cursor.fetchone()[2]
+    cursor.execute("SELECT salt FROM registered_accounts where username=?", (username,))
+    return cursor.fetchone()[0]
 
 
 def verify_hash(username, received_hash):
     """ Returns true if the hash is correct. """
 
-    cursor.execute("SELECT * FROM registered_accounts where username=?", (username,))
-    stored_hash = cursor.fetchone()[1]
+    cursor.execute("SELECT passwordhash FROM registered_accounts where username=?", (username,))
+    stored_hash = cursor.fetchone()[0]
     return received_hash == stored_hash
 
 
