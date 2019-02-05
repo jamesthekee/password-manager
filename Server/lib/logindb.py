@@ -32,7 +32,7 @@ def username_exists(username):
     """ Returns true if username is in database. """
 
     cursor.execute("SELECT username FROM registered_accounts where username=?", (username,))
-    login_details = cursor.fetchone()[0]
+    login_details = cursor.fetchone()
     return bool(login_details)
 
 
