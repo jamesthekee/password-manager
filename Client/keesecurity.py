@@ -172,8 +172,6 @@ class LoginPage(tk.Frame):
 
         username = self.username_entry.get()
         password = self.password_entry.get()
-        self.username_entry.delete(0, "end")
-        self.password_entry.delete(0, "end")
 
         self.login_procedure(username, password)
 
@@ -190,32 +188,29 @@ class LoginPage(tk.Frame):
 
     def login_procedure(self, username, password):
         """ Send commands to server for the login procedure. """
-        
-        self.master.server.send_message(("login", username))
+
+        password_hash = sha256(password.encode()).hexdigest()
+        self.master.server.send_message(("login", (username, password_hash)))
+        # Listen to response
+
         msg = self.master.server.receive_message()
-        if msg[0] == "salt":
-            salt = msg[1]
-            password_hash = sha256((password + salt).encode()).hexdigest()
-            self.master.server.send_message(("password", password_hash))
-            msg = self.master.server.receive_message()
-            if msg == ("login_granted",):
-                accounts = self.master.server.receive_message()[1]
-                self.master.switch_frame(DatabaseViewer, accounts, password)
-            elif msg == ("login_denied",):
-                self.message_label.config(text="Invalid login details")
+        if msg == ("login_granted",):
+            accounts = self.master.server.receive_message()[1]
+            self.master.switch_frame(DatabaseViewer, accounts, password)
         elif msg == ("login_denied",):
             self.message_label.config(text="Invalid login details")
 
     def register_procedure(self, username, password):
         """ Send commands to server for the register procedure. """
-        
-        self.master.server.send_message(("register", username))
+
+        password_hash = sha256(password.encode()).hexdigest()
+        self.master.server.send_message(("register", (username, password_hash)))
+        # Listen to response
+
         msg = self.master.server.receive_message()
         if msg != ("username_taken",):
-            salt = msg[1]
-            password_hash = sha256((password + salt).encode()).hexdigest()
-            self.master.server.send_message(("password", password_hash))
-            accounts = self.master.server.receive_message()[1]
+            accounts = []
+            print("accounts: ", accounts)
             self.master.switch_frame(DatabaseViewer, accounts, password)
         else:
             self.message_label.config(text="Username taken")

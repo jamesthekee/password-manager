@@ -3,6 +3,7 @@ from threading import Thread
 from pickle import loads, dumps, UnpicklingError
 import time
 from datetime import datetime
+from hashlib import sha256
 import os
 import lib.logindb as logindb
 import lib.datadb as datadb
@@ -68,9 +69,8 @@ if whitelist_enabled:
 
 
 # Dictionary for expected datatypes of commands
-commands = {"login":  str,
-            "register": str,
-            "password": str,
+commands = {"login": tuple,
+            "register": tuple,
             "update": list,
             "delete_user": type(None),
             "logout": type(None),
@@ -159,17 +159,14 @@ def validate_command(command, command_type):
         
         # Validate command
         if instruction == command_type and type(argument) is commands[command_type]:
-            if command_type == "login":
-                return True
-            elif command_type == "password":
-                # has to be a default sha256 hash
-                return len(argument) == 64 and all(is_hex(char) for char in argument)
-            elif command_type == "register":
-                return validate_credentials(argument)
-            else:
-                return True
-        else:
-            return False
+            if command_type == "register" or command_type == "login":
+                if len(argument) == 2 and len(argument[1]) == 64 and \
+                 all(is_hex(char) for char in argument[1]):
+                    if command_type == "register":
+                        username = argument[0]
+                        return validate_credentials(username)
+                    return True
+            return True
     return False
 
 
@@ -232,9 +229,9 @@ class ClientConnection:
         while self.awaiting_login:
             command = self.receive_message()
             if validate_command(command, "login"):
-                self.login(command[1])
+                self.login(command[1][0], command[1][1])
             elif validate_command(command, "register"):
-                self.register(command[1])
+                self.register(command[1][0], command[1][1])
             elif validate_command(command, "quit"):
                 self.quit()
             else:
@@ -245,13 +242,14 @@ class ClientConnection:
         if self.username:
             self.run()
 
-    def login(self, username):
+    def login(self, username, password):
         """ Handles a login command. """
 
+        print("Login {} {}".format(username, password))
+
         if logindb.username_exists(username):
-            self.send_message(("salt", logindb.get_salt(username)))
-            password = self.receive_message()[1]
-            if logindb.verify_hash(username, password):
+            password_hash = sha256((password + logindb.get_salt(username)).encode()).hexdigest()
+            if logindb.verify_hash(username, password_hash):
                 self.username = username
                 log_event("{}:{} has logged in to the account '{}'".format(self.address[0], self.address[1], self.username))
                 self.awaiting_login = False
@@ -261,18 +259,18 @@ class ClientConnection:
         else:
             self.send_message(("login_denied",))
 
-    def register(self, username):
+    def register(self, username, password):
         """ Handles a register command. """
+
+        print("Register {} {}".format(username, password))
 
         if not logindb.username_exists(username):
             salt = logindb.generate_salt()
-            self.send_message(("salt", salt))
-            password = self.receive_message()[1]
-
             self.username = username
+            password_hash = sha256((password + salt).encode()).hexdigest()
             self.awaiting_login = False
             # create account
-            logindb.add(self.username, password, salt)
+            logindb.add(self.username, password_hash, salt)
             log_event("{}:{} has registered the account '{}'".format(self.address[0], self.address[1], self.username))
         else:
             self.send_message(("username_taken",))
