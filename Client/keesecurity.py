@@ -253,14 +253,14 @@ class DatabaseViewer(tk.Frame):
         # GUI SETUP
 
         # create menu
-        menu = tk.Menu(master)
-        master.config(menu=menu)
+        self.menu = tk.Menu(master)
+        master.config(menu=self.menu)
 
-        product_information = """This password manager is an A-Level project written by James Kee 
-        More information is available at https://github.com/jamesthekee/password-manager"""
+        product_information = "This password manager is an A-Level project written by James Kee." \
+        "More information is available at https://github.com/jamesthekee/password-manager"
 
-        submenu = tk.Menu(menu)
-        menu.add_cascade(label="More", menu=submenu)
+        submenu = tk.Menu(self.menu)
+        self.menu.add_cascade(label="More", menu=submenu)
         submenu.add_command(label="Logout", command=self.logout)
         submenu.add_command(label="Information",
                             command=lambda: tkinter.messagebox.showinfo("Product Information",
@@ -528,6 +528,7 @@ class DatabaseViewer(tk.Frame):
         self.master.server.send_message(("logout",))
         if self.popup:
             self.add_popup.destroy()
+        self.menu.delete(0, 2)
         self.master.switch_frame(LoginPage)
         
     def delete_account(self):
@@ -535,6 +536,7 @@ class DatabaseViewer(tk.Frame):
         
         if tk.messagebox.askokcancel("Confirm action", "Are you sure you want to delete your account?"):
             self.master.server.send_message(("delete_user",))
+            self.menu.delete(0, 2)
             self.master.switch_frame(LoginPage)
 
     def on_closing(self):

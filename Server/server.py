@@ -94,7 +94,7 @@ def accept_incoming_connections():
     
     while True:
         connection, address = server.accept()
-        log_event("{}:{} has connected.".format(*address))
+        log_event("{}:{} has connected.".format(address[0], address[1]))
         if not whitelist_enabled or address[0] in whitelist_ips:
             response = connection.recv(BUFFER_SIZE).decode()
             if response == "OK":
@@ -102,7 +102,7 @@ def accept_incoming_connections():
                 Thread(target=ClientConnection, args=(connection, address)).start()
         else:
             connection.send(bytes("NO", "utf8"))
-            log_event("{}:{} was forcefully disconnected as it was not on the whitelist".format(*address))
+            log_event("{}:{} was forcefully disconnected as it was not on the whitelist".format(address[0], address[1]))
             connection.close()
 
 
@@ -216,7 +216,7 @@ class ClientConnection:
             message = loads(message)
 
             if message is not None:
-                log_event("{}:{} sent: {}".format(*self.address, message))
+                log_event("{}:{} sent: {}".format(self.address[0], self.address[0], message))
                 return message
         except UnpicklingError:
             print("Unpickling error: invalid encryption/ decryption? :{}")
@@ -253,7 +253,7 @@ class ClientConnection:
             password = self.receive_message()[1]
             if logindb.verify_hash(username, password):
                 self.username = username
-                log_event("{}:{} has logged in to the account '{}'".format(*self.address, self.username))
+                log_event("{}:{} has logged in to the account '{}'".format(self.address[0], self.address[1], self.username))
                 self.awaiting_login = False
                 self.send_message(("login_granted",))
             else:
@@ -273,7 +273,7 @@ class ClientConnection:
             self.awaiting_login = False
             # create account
             logindb.add(self.username, password, salt)
-            log_event("{}:{} has registered the account '{}'".format(*self.address, self.username))
+            log_event("{}:{} has registered the account '{}'".format(self.address[0], self.address[1], self.username))
         else:
             self.send_message(("username_taken",))
 
@@ -283,7 +283,7 @@ class ClientConnection:
         self.client.close()
         self.awaiting_login = False
         self.access = False
-        log_event("{}:{} has disconnected".format(*self.address))
+        log_event("{}:{} has disconnected".format(self.address[0], self.address[1]))
 
     def run(self):
         """ Handles an instance of a logged in client. """
