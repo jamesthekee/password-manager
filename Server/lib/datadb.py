@@ -32,7 +32,7 @@ class DatabaseInterface:
     """ Object that handles the changes to the database for a user. """
 
     def __init__(self, username):
-        if username.isalpha():
+        if username.isalnum():
             self.username = username
             cursor.execute("CREATE TABLE IF NOT EXISTS {}(service STRING, login STRING, notes STRING)".format(username))
         else:
