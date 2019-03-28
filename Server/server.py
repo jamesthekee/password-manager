@@ -245,8 +245,6 @@ class ClientConnection:
     def login(self, username, password):
         """ Handles a login command. """
 
-        print("Login {} {}".format(username, password))
-
         if logindb.username_exists(username):
             password_hash = sha256((password + logindb.get_salt(username)).encode()).hexdigest()
             if logindb.verify_hash(username, password_hash):
@@ -261,8 +259,6 @@ class ClientConnection:
 
     def register(self, username, password):
         """ Handles a register command. """
-
-        print("Register {} {}".format(username, password))
 
         if not logindb.username_exists(username):
             salt = logindb.generate_salt()
