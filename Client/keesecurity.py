@@ -499,6 +499,7 @@ class DatabaseViewer(tk.Frame):
         
         current_entries = self.table.get_children()
         self.start_index += len(current_entries)
+        self.row_selected += len(current_entries)
         self.table.delete(*current_entries)
 
         if len(self.accounts) != 0:
