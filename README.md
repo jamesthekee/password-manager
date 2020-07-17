@@ -16,7 +16,7 @@ you will have to port forward and use the same port in the config file.
 4. Run client/client.py and use however bloody ever
 
 HOW IT WORKS
-All communication is currently encrypted(using vernam cipger) and is sent in plaintext.
+All communication is currently encrypted(using vernam cipher) and is sent in plaintext.
 When you login in to the service, the password is hashed with a salt so your password can't be recovered. 
 
 In this application you cannot store associated passwords with usernames amd they are only generated from your information.
