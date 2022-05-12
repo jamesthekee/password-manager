@@ -3,10 +3,10 @@ The files contain a server and client program for a password manager implemented
 
 This was produced for my coursework for AQA A-Level project.
 
-DISCLAIMER
+## DISCLAIMER
 This is not a professional product do not use this to store real passwords, this is merely a fake product and is for my own educational purpose. None of the encryption or security precautions are of industry standard. 
 
-HOW TO USE
+## HOW TO USE
 
 1. Configure server config file to your requirements. If you wish to have it accessable across networks 
 you will have to port forward and use the same port in the config file.
@@ -15,7 +15,7 @@ you will have to port forward and use the same port in the config file.
 3. Insert the host address and port in the clientconfig.ini.
 4. Run client/client.py and use however bloody ever
 
-HOW IT WORKS
+## HOW IT WORKS
 All communication is currently encrypted(using vernam cipher) and is sent in plaintext.
 When you login in to the service, the password is hashed with a salt so your password can't be recovered. 
 
