@@ -1,9 +1,9 @@
-# password-manager
+# password manager
 The repository contain a server and client program for a Client-Server password manager implemented in python. 
 
 This was produced for my coursework for AQA A-Level project.
 
-** DISCLAIMER: **  This password manager is not secure.
+__DISCLAIMER:  This password manager is not secure. Do not use genuinely. __
 
 ## HOW TO USE
 
