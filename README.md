@@ -3,7 +3,7 @@ The repository contain a server and client program for a Client-Server password 
 
 This was produced for my coursework for AQA A-Level project.
 
-__DISCLAIMER:  This password manager is not secure. Do not use genuinely. __
+**DISCLAIMER:  This password manager is not secure. Do not use genuinely.**
 
 ## HOW TO USE
 
