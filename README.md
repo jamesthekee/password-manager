@@ -1,4 +1,9 @@
 # password manager
+
+<img src="https://user-images.githubusercontent.com/43153742/214710609-85dae5a8-0d61-4bce-8eff-103ffba76a39.png" width=50% height=50%>
+<img src="https://user-images.githubusercontent.com/43153742/214710890-e255572e-0f1e-4cfd-8790-8efeff5ce1ca.png" width=50% height=50%>
+
+
 The repository contain a server and client program for a Client-Server password manager implemented in python. It was produced for a A-Level school project and therefore not remotely secure.
 
 **DISCLAIMER:  This password manager is not secure. Do not use genuinely.**
@@ -26,3 +31,5 @@ This does mean that editing an entry will change the password generated so don't
 
 TECHNICAL NOTES
 - Uses the PORT 33000 by default
+
+
